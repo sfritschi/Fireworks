@@ -5,4 +5,5 @@ Goal is to animate 5-pointed star geometries shooting in random directions at di
 
 ## Dependencies
 - CGLM: https://github.com/recp/cglm
-- Vulkan
+- glslc (GLSL compiler): https://github.com/google/shaderc
+- Vulkan SDK
