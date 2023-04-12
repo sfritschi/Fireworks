@@ -1,0 +1,32 @@
+#version 450 core
+
+struct Particle {
+    vec2 position;
+    vec2 velocity;
+    vec3 color;
+};
+
+layout(binding = 0) uniform ParameterUBO {
+    float deltaTime;
+} ubo;
+
+layout(std140, binding = 1) readonly buffer InParticleSSBO {
+    Particle inParticles[];
+};
+
+layout(std140, binding = 2) buffer OutParticleSSBO {
+    Particle outParticles[];
+};
+
+layout(local_size_x = 16, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    const uint index = gl_GlobalInvocationID.x;
+    
+    Particle inParticle = inParticles[index];
+    
+    outParticles[index].position = inParticle.velocity * ubo.deltaTime;
+    outParticles[index].velocity = inParticle.velocity;
+    outParticles[index].color = inParticle.color;
+}

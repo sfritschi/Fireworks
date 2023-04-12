@@ -85,7 +85,6 @@ typedef struct SwapChainData {
 typedef struct DescriptorData {
     VkDescriptorSet sets[MAX_FRAMES_IN_FLIGHT];
     VkDescriptorSetLayout layout;
-    VkDescriptorPool pool;
 } DescriptorData;
 
 typedef struct BufferResource {
@@ -93,17 +92,19 @@ typedef struct BufferResource {
     VkDeviceMemory memory;  // handle of device memory associated with buffer
 } BufferResource;
 
-// Note: Uniform buffers are update every frame
-typedef struct UniformBufferResource {
+// Buffer resource for every frame in flight
+typedef struct FlightBufferResource {
     VkBuffer buffers[MAX_FRAMES_IN_FLIGHT];
     VkDeviceMemory memories[MAX_FRAMES_IN_FLIGHT];
     void *mapped[MAX_FRAMES_IN_FLIGHT];  // mapped memory regions    
-} UniformBufferResource;
+} FlightBufferResource;
 
 typedef struct SyncObjects {
     VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
     VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore computeFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
     VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
+    VkFence computeInFlightFences[MAX_FRAMES_IN_FLIGHT];
 } SyncObjects;
 
 typedef struct GraphicsData {
@@ -113,12 +114,16 @@ typedef struct GraphicsData {
     VkDevice device;        // logical device (including state information)
     VkSurfaceKHR surface;   // surface to render graphics to
     VkQueue graphicsQueue;  // graphics queue handle
+    VkQueue computeQueue;   // compute queue handle
     VkQueue presentQueue;   // presentation queue handle
     VkRenderPass renderPass;  // rendering operations
     VkPipeline graphicsPipeline;
+    VkPipeline computePipeline;
     VkPipelineLayout pipelineLayout;
+    VkPipelineLayout computePipelineLayout;
     VkCommandPool commandPool;  // pool for allocating command buffers
     VkCommandBuffer commandBuffers[MAX_FRAMES_IN_FLIGHT];
+    VkCommandBuffer computeCommandBuffers[MAX_FRAMES_IN_FLIGHT];
     VkSampleCountFlagBits msaaSamples;  // #multisampling sample count
     uint32_t currentFrame;  // index of current frame being drawn
     VkBool32 framebufferResized;
@@ -127,10 +132,14 @@ typedef struct GraphicsData {
     SwapChainData swapChainData;
     BufferResource vertexData;
     BufferResource indexData;
-    DescriptorData descriptorData;
-    UniformBufferResource uniformData;
+    VkDescriptorPool descriptorPool;
+    DescriptorData vertexDescriptor;
+    DescriptorData computeDescriptor;
+    FlightBufferResource mvpUniform;
+    FlightBufferResource deltaTimeUniform;
+    FlightBufferResource shaderStorage; 
     SyncObjects sync;
-    struct timeval startTime;  // Record starting time used for animation
+    struct timeval startTime;  // record starting time used for animation
     VkDebugUtilsMessengerEXT debugMessenger;
 } GraphicsData;
 

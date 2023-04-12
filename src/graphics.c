@@ -27,6 +27,13 @@ static uint32_t clampu32(uint32_t x, uint32_t min, uint32_t max)
     return x;
 }
 
+static void randomColor(vec3 color)
+{
+    color[0] = (float)rand() / (float)RAND_MAX;
+    color[1] = (float)rand() / (float)RAND_MAX;
+    color[2] = (float)rand() / (float)RAND_MAX;
+}
+
 static char *readBinFile(const char *fileName, uint32_t *fileSize)
 {
     FILE *fp = fopen(fileName, "rb");
@@ -76,6 +83,18 @@ static void glfwErrorCallback(int error, const char* description)
     
     fprintf(stderr, "GLFW error: %s\n", description);
     exit(EXIT_FAILURE);  // cannot continue
+}
+
+static void glfwKeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    (void)scancode;
+    (void)mods;
+    
+    if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+        Graphics graphics = (Graphics) glfwGetWindowUserPointer(window);
+        // Restart animation time
+        CHK_TIME_OF_DAY(graphics->startTime);
+    }
 }
 
 static void framebufferResizeCallback(GLFWwindow *window, int width, int height)
@@ -158,6 +177,7 @@ static void initWindow(Graphics graphics)
     // Store pointer to graphics handle for reuse within GLFW callback
     glfwSetWindowUserPointer(graphics->window, graphics);
     glfwSetFramebufferSizeCallback(graphics->window, framebufferResizeCallback);
+    glfwSetKeyCallback(graphics->window, glfwKeyCallback);
 }
 
 static VkBool32 checkValidationLayerSupport()
@@ -380,9 +400,12 @@ static VkBool32 isDeviceSuitable(Graphics graphics, VkPhysicalDevice device,
     VkBool32 foundGraphicsQueue = VK_FALSE;
     VkBool32 foundPresentQueue = VK_FALSE;
     // Look for a graphics queue and a present queue separately (likely the same)
+    // Note: Require graphics queue to also have compute capabilities
     for (uint32_t i = 0; i < queueFamilyCount; ++i) {
         if (!foundGraphicsQueue && 
-                (queueProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+            (queueProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+            (queueProps[i].queueFlags & VK_QUEUE_COMPUTE_BIT)) 
+        {
             indices->graphicsFamily = i;
             foundGraphicsQueue = VK_TRUE;
         }
@@ -596,10 +619,11 @@ static void initLogicalDevice(Graphics graphics)
     // Cleanup
     free(queueCreateInfos);
     
-    // Set device queue handles for graphics/presentation queue
+    // Set device queue handles for graphics & compute / presentation queue
     vkGetDeviceQueue(graphics->device, graphics->queueFamilies.graphicsFamily,
         0, &graphics->graphicsQueue);
-    
+    vkGetDeviceQueue(graphics->device, graphics->queueFamilies.graphicsFamily,
+        0, &graphics->computeQueue);
     vkGetDeviceQueue(graphics->device, graphics->queueFamilies.presentFamily,
         0, &graphics->presentQueue);
 }
@@ -1004,50 +1028,91 @@ static void recreateSwapChain(Graphics graphics)
 static void createDescriptorResources(Graphics graphics)
 {
     // - Create descriptor set layout
-    VkDescriptorSetLayoutBinding uboLayoutBinding = {0};
-    uboLayoutBinding.binding = 0;  // see binding in vertex shader
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutBinding layoutBindingVertex = {0};
+    layoutBindingVertex.binding = 0;  // see binding in vertex shader
+    layoutBindingVertex.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    layoutBindingVertex.descriptorCount = 1;
+    layoutBindingVertex.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     
-    VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &uboLayoutBinding;
+    VkDescriptorSetLayoutCreateInfo layoutInfoVertex = {0};
+    layoutInfoVertex.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfoVertex.bindingCount = 1;
+    layoutInfoVertex.pBindings = &layoutBindingVertex;
     
-    CHK_VK_ERR(vkCreateDescriptorSetLayout(graphics->device, &layoutInfo,
-        NULL, &graphics->descriptorData.layout),
+    CHK_VK_ERR(vkCreateDescriptorSetLayout(graphics->device, &layoutInfoVertex,
+        NULL, &graphics->vertexDescriptor.layout),
         "Failed to create descriptor set layout\n");
+        
+    VkDescriptorSetLayoutBinding layoutBindingsCompute[3] = {0};
+    layoutBindingsCompute[0].binding = 0;  // see binding in compute shader
+    layoutBindingsCompute[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    layoutBindingsCompute[0].descriptorCount = 1;
+    layoutBindingsCompute[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     
+    layoutBindingsCompute[1].binding = 1;  // see binding in compute shader
+    layoutBindingsCompute[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    layoutBindingsCompute[1].descriptorCount = 1;
+    layoutBindingsCompute[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    
+    layoutBindingsCompute[2].binding = 2;  // see binding in compute shader
+    layoutBindingsCompute[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    layoutBindingsCompute[2].descriptorCount = 1;
+    layoutBindingsCompute[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    
+    VkDescriptorSetLayoutCreateInfo layoutInfoCompute = {0};
+    layoutInfoCompute.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfoCompute.bindingCount = 3;
+    layoutInfoCompute.pBindings = layoutBindingsCompute;
+    
+    CHK_VK_ERR(vkCreateDescriptorSetLayout(graphics->device, &layoutInfoCompute,
+        NULL, &graphics->computeDescriptor.layout),
+        "Failed to create descriptor set layout\n");
+        
     // - Create descriptor pool
-    VkDescriptorPoolSize poolSize = {0};
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
+    VkDescriptorPoolSize poolSizes[2] = {0};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 2;
+    
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 2;
     
     VkDescriptorPoolCreateInfo poolInfo = {0};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT;
+    poolInfo.poolSizeCount = 2;
+    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT * 2;
     
     CHK_VK_ERR(vkCreateDescriptorPool(graphics->device, &poolInfo, NULL,
-        &graphics->descriptorData.pool),
+        &graphics->descriptorPool),
         "Failed to create descriptor pool\n");
     
     VkDescriptorSetLayout layouts[MAX_FRAMES_IN_FLIGHT];
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        layouts[i] = graphics->descriptorData.layout;
+        layouts[i] = graphics->vertexDescriptor.layout;
     }
     // - Allocate descriptor set handles
     VkDescriptorSetAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = graphics->descriptorData.pool;
+    allocInfo.descriptorPool = graphics->descriptorPool;
     allocInfo.descriptorSetCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
     allocInfo.pSetLayouts = layouts;
     
     CHK_VK_ERR(vkAllocateDescriptorSets(graphics->device, &allocInfo,
-        graphics->descriptorData.sets),
-        "Failed to allocate descriptor sets\n");
+        graphics->vertexDescriptor.sets),
+        "Failed to allocate graphics descriptor sets\n");
+        
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        layouts[i] = graphics->computeDescriptor.layout;
+    }
+    VkDescriptorSetAllocateInfo allocInfoCompute = {0};
+    allocInfoCompute.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfoCompute.descriptorPool = graphics->descriptorPool;
+    allocInfoCompute.descriptorSetCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
+    allocInfoCompute.pSetLayouts = layouts;
+    
+    CHK_VK_ERR(vkAllocateDescriptorSets(graphics->device, &allocInfoCompute,
+        graphics->computeDescriptor.sets),
+        "Failed to allocate compute descriptor sets\n");
 }
 
 static void cleanupDescriptorResources(Graphics graphics)
@@ -1055,20 +1120,25 @@ static void cleanupDescriptorResources(Graphics graphics)
     // Note: Descriptor sets are automatically deallocated when descriptor
     //       pool is destroyed
     vkDestroyDescriptorPool(graphics->device, 
-        graphics->descriptorData.pool, NULL);
+        graphics->descriptorPool, NULL);
     vkDestroyDescriptorSetLayout(graphics->device, 
-        graphics->descriptorData.layout, NULL);
+        graphics->vertexDescriptor.layout, NULL);
+    vkDestroyDescriptorSetLayout(graphics->device,
+        graphics->computeDescriptor.layout, NULL);
 }
 
 static void createGraphicsPipeline(Graphics graphics)
 {
-    uint32_t vertShaderSize = 0, fragShaderSize = 0;
+    uint32_t vertShaderSize = 0, compShaderSize = 0, fragShaderSize = 0;
     char *vertShaderSource = readBinFile("shaders/bin/vert.spv", &vertShaderSize);
+    char *compShaderSource = readBinFile("shaders/bin/comp.spv", &compShaderSize);
     char *fragShaderSource = readBinFile("shaders/bin/frag.spv", &fragShaderSize);
     
     // - Initialize shader modules
     VkShaderModule vertShaderModule = createShaderModule(
         graphics->device, vertShaderSource, vertShaderSize);
+    VkShaderModule compShaderModule = createShaderModule(
+        graphics->device, compShaderSource, compShaderSize);
     VkShaderModule fragShaderModule = createShaderModule(
         graphics->device, fragShaderSource, fragShaderSize);
     
@@ -1078,6 +1148,12 @@ static void createGraphicsPipeline(Graphics graphics)
     vertShaderInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
     vertShaderInfo.module = vertShaderModule;
     vertShaderInfo.pName = "main";  // entry point of shader code
+    
+    VkPipelineShaderStageCreateInfo compShaderInfo = {0};
+    compShaderInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    compShaderInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    compShaderInfo.module = compShaderModule;
+    compShaderInfo.pName = "main";  // entry point of shader code
     
     VkPipelineShaderStageCreateInfo fragShaderInfo = {0};
     fragShaderInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1091,30 +1167,40 @@ static void createGraphicsPipeline(Graphics graphics)
     };
     
     // - Initialize vertex input binding and attribute descriptions
-    VkVertexInputBindingDescription bindingDescription = {0};
-    bindingDescription.binding = 0;  // index (only 1 binding)
-    bindingDescription.stride = sizeof(Vertex);
+    VkVertexInputBindingDescription bindingDescriptions[2] = {0};
+    bindingDescriptions[0].binding = 0;  // index (only 1 binding)
+    bindingDescriptions[0].stride = sizeof(Vertex);
     // Attribute addressing using vertex index (as opposed to instance index)
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
     
-    // See Vertex structure in graphics.h 
-    VkVertexInputAttributeDescription attributeDescriptions[2] = {0};
+    bindingDescriptions[1].binding = 1;
+    bindingDescriptions[1].stride = sizeof(Particle);
+    // Attribute addressing using vertex index (as opposed to instance index)
+    bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    
+    // See Vertex and Particle structure in graphics.h 
+    VkVertexInputAttributeDescription attributeDescriptions[3] = {0};
     // Vertex.pos (vec2 -> r32g32)
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(Vertex, pos);
-    // Vertex.col (vec3 -> r32g32b32)
+    // Particle.col (vec3 -> r32g32b32)
     attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].binding = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, col);
+    attributeDescriptions[1].offset = offsetof(Particle, color);
+    // Particle.pos (vec2 -> r32g32)
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].binding = 1;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(Particle, position);
     
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {0};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = 2;
+    vertexInputInfo.vertexBindingDescriptionCount = 2;
+    vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions;
+    vertexInputInfo.vertexAttributeDescriptionCount = 3;
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
     
     VkPipelineInputAssemblyStateCreateInfo pipelineAssemblyInfo = {0};
@@ -1201,7 +1287,7 @@ static void createGraphicsPipeline(Graphics graphics)
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &graphics->descriptorData.layout;
+    pipelineLayoutInfo.pSetLayouts = &graphics->vertexDescriptor.layout;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = NULL;
     
@@ -1212,7 +1298,7 @@ static void createGraphicsPipeline(Graphics graphics)
     // - Finally, create graphics pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo = {0};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;  // fragment + vertex shader stage
+    pipelineInfo.stageCount = 2;  // fragment + vertex shader stages
     pipelineInfo.pStages = shaderInfos;
     pipelineInfo.pVertexInputState = &vertexInputInfo;
     pipelineInfo.pInputAssemblyState = &pipelineAssemblyInfo;
@@ -1233,11 +1319,31 @@ static void createGraphicsPipeline(Graphics graphics)
         1, &pipelineInfo, NULL, &graphics->graphicsPipeline), 
         "Failed to create graphics pipeline\n");
     
+    // Create compute pipeline/layout
+    VkPipelineLayoutCreateInfo pipelineLayoutInfoCompute = {0};
+    pipelineLayoutInfoCompute.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfoCompute.setLayoutCount = 1;
+    pipelineLayoutInfoCompute.pSetLayouts = &graphics->computeDescriptor.layout;
+    
+    CHK_VK_ERR(vkCreatePipelineLayout(graphics->device, &pipelineLayoutInfoCompute,
+        NULL, &graphics->computePipelineLayout),
+        "Failed to create compute pipeline layout\n");
+    
+    VkComputePipelineCreateInfo pipelineInfoCompute = {0};
+    pipelineInfoCompute.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfoCompute.layout = graphics->computePipelineLayout;
+    pipelineInfoCompute.stage = compShaderInfo;
+    
+    CHK_VK_ERR(vkCreateComputePipelines(graphics->device, VK_NULL_HANDLE, 1,
+        &pipelineInfoCompute, NULL, &graphics->computePipeline), "Failed to create compute pipeline\n");
+    
     // - Cleanup
     vkDestroyShaderModule(graphics->device, vertShaderModule, NULL);
+    vkDestroyShaderModule(graphics->device, compShaderModule, NULL);
     vkDestroyShaderModule(graphics->device, fragShaderModule, NULL);
     
     free(vertShaderSource);
+    free(compShaderSource);
     free(fragShaderSource);
 }
 
@@ -1261,9 +1367,14 @@ static void createCommandResources(Graphics graphics)
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
     
+    // Allocate command buffers for both graphics and compute queues
     // Note: Command buffers are freed when their command pool is destroyed
     CHK_VK_ERR(vkAllocateCommandBuffers(graphics->device, &allocInfo,
         graphics->commandBuffers), "Failed to allocate command buffers\n");
+    
+    CHK_VK_ERR(vkAllocateCommandBuffers(graphics->device, &allocInfo,
+        graphics->computeCommandBuffers), 
+        "Failed to allocate compute command buffers\n");
 }
 
 static void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
@@ -1448,33 +1559,32 @@ static void createIndexBuffer(Graphics graphics, const uint16_t *indices,
     vkFreeMemory(graphics->device, stagingBufferMemory, NULL);
 }
 
-static void createUniformBuffers(Graphics graphics)
+static void createFlightBuffer(Graphics graphics, 
+    FlightBufferResource *bufferResource, const DescriptorData *descriptor,
+    VkDeviceSize bufferSize, uint32_t binding)
 {
-    // Buffer only holds single UniformBufferObject
-    const VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-    
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &graphics->uniformData.buffers[i], &graphics->uniformData.memories[i]);
-        
+            &bufferResource->buffers[i], &bufferResource->memories[i]);
+            
         // Obtain pointer to mapped memory range
-        CHK_VK_ERR(vkMapMemory(graphics->device, graphics->uniformData.memories[i],
-            0, bufferSize, 0, &graphics->uniformData.mapped[i]),
+        CHK_VK_ERR(vkMapMemory(graphics->device, bufferResource->memories[i],
+            0, bufferSize, 0, &bufferResource->mapped[i]),
             "Failed to map uniform buffer memory\n");
         
         // Update descriptor sets to use uniform buffers
         VkDescriptorBufferInfo bufferInfo = {0};
-        bufferInfo.buffer = graphics->uniformData.buffers[i];
+        bufferInfo.buffer = bufferResource->buffers[i];
         bufferInfo.offset = 0;
         bufferInfo.range = bufferSize;  // VK_WHOLE_SIZE
         
         VkWriteDescriptorSet descriptorWrite = {0};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = graphics->descriptorData.sets[i];
-        descriptorWrite.dstBinding = 0;  // see binding in vertex shader
+        descriptorWrite.dstSet = descriptor->sets[i];
+        descriptorWrite.dstBinding = binding;
         descriptorWrite.dstArrayElement = 0;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorWrite.descriptorCount = 1;
@@ -1483,6 +1593,106 @@ static void createUniformBuffers(Graphics graphics)
         descriptorWrite.pTexelBufferView = NULL;  // unused
         
         vkUpdateDescriptorSets(graphics->device, 1, &descriptorWrite, 0, NULL);
+    }
+}
+
+static void createUniformBuffers(Graphics graphics)
+{    
+    VkDeviceSize bufferSize;
+    // Create buffer for MVP matrices (binding 0 in vertex shader)
+    bufferSize = sizeof(UniformBufferObject);
+    createFlightBuffer(graphics, &graphics->mvpUniform, 
+        &graphics->vertexDescriptor, bufferSize, 0);
+    // Create buffer for deltaTime uniform (binding 0 in compute shader)
+    bufferSize = sizeof(ParameterBufferObject);
+    createFlightBuffer(graphics, &graphics->deltaTimeUniform, 
+        &graphics->computeDescriptor, bufferSize, 0);
+}
+
+static void createShaderStorage(Graphics graphics)
+{
+    // Initialize particle data
+    Particle particles[N_PARTICLES] = {0};
+    for (uint32_t i = 0; i < N_PARTICLES; ++i) {
+        // DEBUG: evenly spaced on circle with radius r
+        const float theta = (float)i * 2.0f * GLM_PI / (float)N_PARTICLES;
+        const float cosTheta = cosf(theta);
+        const float sinTheta = sinf(theta);
+        
+        particles[i].position[0] = 0.0f;
+        particles[i].position[1] = 0.0f;
+        
+        const float speed = 1e-1f;
+        particles[i].velocity[0] = speed * cosTheta;
+        particles[i].velocity[1] = speed * sinTheta;
+        
+        randomColor(particles[i].color);
+    }
+    const VkDeviceSize bufferSize = sizeof(particles);
+    
+    // Initialize staging buffer
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &stagingBuffer, &stagingBufferMemory);
+    
+    // Fill staging buffer with particle data
+    void *data = NULL;
+    vkMapMemory(graphics->device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, particles, (size_t)bufferSize);
+    vkUnmapMemory(graphics->device, stagingBufferMemory);
+    
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &graphics->shaderStorage.buffers[i], &graphics->shaderStorage.memories[i]);
+        
+        copyBuffer(graphics, stagingBuffer, 
+            graphics->shaderStorage.buffers[i], bufferSize);
+    }
+    
+    // Cleanup staging buffer
+    vkDestroyBuffer(graphics->device, stagingBuffer, NULL);
+    vkFreeMemory(graphics->device, stagingBufferMemory, NULL);
+    
+    // Update descriptor sets accordingly
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkWriteDescriptorSet descriptorWrites[2] = {0};
+        
+        VkDescriptorBufferInfo storageBufferInfoLastFrame = {0};
+        storageBufferInfoLastFrame.buffer = 
+            graphics->shaderStorage.buffers[(i + 1) % MAX_FRAMES_IN_FLIGHT];
+        storageBufferInfoLastFrame.offset = 0;
+        storageBufferInfoLastFrame.range = bufferSize;
+        
+        descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[0].dstSet = graphics->computeDescriptor.sets[i];
+        descriptorWrites[0].dstBinding = 1;  // see InParticleSSBO in comp shader
+        descriptorWrites[0].dstArrayElement = 0;
+        descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[0].descriptorCount = 1;
+        descriptorWrites[0].pBufferInfo = &storageBufferInfoLastFrame;
+        
+        VkDescriptorBufferInfo storageBufferInfoCurrentFrame = {0};
+        storageBufferInfoCurrentFrame.buffer = graphics->shaderStorage.buffers[i];
+        storageBufferInfoCurrentFrame.offset = 0;
+        storageBufferInfoCurrentFrame.range = bufferSize;
+        
+        descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[1].dstSet = graphics->computeDescriptor.sets[i];
+        descriptorWrites[1].dstBinding = 2;  // see OutParticleSSBO in comp shader
+        descriptorWrites[1].dstArrayElement = 0;
+        descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorWrites[1].descriptorCount = 1;
+        descriptorWrites[1].pBufferInfo = &storageBufferInfoCurrentFrame;
+        
+        vkUpdateDescriptorSets(graphics->device, 2, descriptorWrites, 0, NULL);
     }
 }
 
@@ -1506,9 +1716,17 @@ static void createSyncObjects(Graphics graphics)
             NULL, &graphics->sync.renderFinishedSemaphores[i]),
             "Failed to create renderFinishedSemaphores\n");
         
+        CHK_VK_ERR(vkCreateSemaphore(graphics->device, &semaphoreInfo,
+            NULL, &graphics->sync.computeFinishedSemaphores[i]),
+            "Failed to create computeFinishedSemaphores\n");
+            
         CHK_VK_ERR(vkCreateFence(graphics->device, &fenceInfo, NULL,
             &graphics->sync.inFlightFences[i]), 
             "Failed to create inFlightFences\n");
+        
+        CHK_VK_ERR(vkCreateFence(graphics->device, &fenceInfo, NULL,
+            &graphics->sync.computeInFlightFences[i]),
+            "Failed to create computeInFlightFences\n");
     }
 }
 
@@ -1519,8 +1737,12 @@ static void cleanupSyncObjects(Graphics graphics)
             graphics->sync.imageAvailableSemaphores[i], NULL);
         vkDestroySemaphore(graphics->device, 
             graphics->sync.renderFinishedSemaphores[i], NULL);
+        vkDestroySemaphore(graphics->device, 
+            graphics->sync.computeFinishedSemaphores[i], NULL);
         vkDestroyFence(graphics->device, 
             graphics->sync.inFlightFences[i], NULL);
+        vkDestroyFence(graphics->device, 
+            graphics->sync.computeInFlightFences[i], NULL);
     }
 }
 
@@ -1553,11 +1775,14 @@ static void recordCommandBuffer(Graphics graphics,
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
         graphics->graphicsPipeline);
     
-    // Bind vertex buffer
-    const VkBuffer vertexBuffers[] = {graphics->vertexData.buffer};
-    const VkDeviceSize offsets[] = {0};
+    // Bind vertex buffers (star vertices + particle data)
+    const VkBuffer vertexBuffers[] = {
+        graphics->vertexData.buffer,
+        graphics->shaderStorage.buffers[graphics->currentFrame]
+    };
+    const VkDeviceSize offsets[] = {0, 0};
     
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offsets);
     
     // Bind index buffer
     vkCmdBindIndexBuffer(commandBuffer, graphics->indexData.buffer, 0, 
@@ -1586,8 +1811,8 @@ static void recordCommandBuffer(Graphics graphics,
     
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
         graphics->pipelineLayout, 0, 1, 
-        &graphics->descriptorData.sets[graphics->currentFrame], 0, NULL);
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
+        &graphics->vertexDescriptor.sets[graphics->currentFrame], 0, NULL);
+    vkCmdDrawIndexed(commandBuffer, indexCount, N_PARTICLES, 0, 0, 0);
     
     vkCmdEndRenderPass(commandBuffer);
     
@@ -1596,18 +1821,46 @@ static void recordCommandBuffer(Graphics graphics,
         "Failed to end recording command buffer\n");
 }
 
+static void recordComputeCommandBuffer(Graphics graphics, 
+    VkCommandBuffer commandBuffer)
+{
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    
+    CHK_VK_ERR(vkBeginCommandBuffer(commandBuffer, &beginInfo),
+        "Failed to begin recording compute command buffer\n");
+    
+    // Bind the compute pipeline
+    vkCmdBindPipeline(commandBuffer, 
+        VK_PIPELINE_BIND_POINT_COMPUTE, graphics->computePipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        graphics->computePipelineLayout, 0, 1, 
+        &graphics->computeDescriptor.sets[graphics->currentFrame], 0, NULL);
+    // Dispatch compute shader
+    // Note: Using 64 threads per work group in x dimension 
+    vkCmdDispatch(commandBuffer, N_PARTICLES / 16, 1, 1);
+    
+    CHK_VK_ERR(vkEndCommandBuffer(commandBuffer),
+        "Failed to end recording compute command buffer\n");
+}
+
 static void updateUniformBuffer(Graphics graphics)
 {    
     const float deltaTime = getDeltaT(graphics);
     
-    // DEBUG
-    //printf("%.3e\n", deltaTime);
+    ParameterBufferObject pbo = {0};
+    pbo.deltaTime = deltaTime;
     
-    // Set startTime for next update    
+    // Copy deltaTime to uniform entry
+    memcpy(graphics->deltaTimeUniform.mapped[graphics->currentFrame], 
+        &pbo, sizeof(pbo));
+        
     UniformBufferObject ubo = {0};
+    glm_mat4_identity(ubo.model);
+    
     glm_lookat((vec3){0.0f, 0.0f, -2.0f}, (vec3){0.0f, 0.0f, 0.0f}, 
         (vec3){0.0f, -1.0f, 0.0f}, ubo.view);
-    glm_rotate_make(ubo.model, deltaTime * CGLM_PI / 4.0f, (vec3) {0.0f, 0.0f, 1.0f});
+    //glm_rotate_make(ubo.model, deltaTime * CGLM_PI / 4.0f, (vec3) {0.0f, 0.0f, 1.0f});
     //glm_ortho(0.0f, (float)graphics->swapChainData.extent.width, 0.0f,
     //    (float)graphics->swapChainData.extent.height, -1.0f, 1.0f, ubo.proj);
     glm_perspective(GLM_PI / 4.0f, (float)graphics->swapChainData.extent.width /
@@ -1616,7 +1869,7 @@ static void updateUniformBuffer(Graphics graphics)
     ubo.proj[1][1] *= -1.0f;
     
     // Copy ubo to mapped range in memory
-    memcpy(graphics->uniformData.mapped[graphics->currentFrame], &ubo, sizeof(ubo));
+    memcpy(graphics->mvpUniform.mapped[graphics->currentFrame], &ubo, sizeof(ubo));
 }
 
 static void initVulkan(Graphics graphics)
@@ -1644,13 +1897,15 @@ static void initVulkan(Graphics graphics)
     // Initialize command pool and command buffer objects
     createCommandResources(graphics);
     // Create a star
-    const Star star = geomMakeStar(0.0f, 0.0f, 0.5f, 0.8f, 0.1f, 0.0f);
+    const Star star = geomMakeStar(0.0f, 0.0f, 0.1f, 0.8f, 0.1f, 0.0f);
     // Initialize vertexData
     createVertexBuffer(graphics, star.vertices, N_VERTICES_STAR);
     // Initialize indexData
     createIndexBuffer(graphics, star.indices, N_INDICES_STAR);
-    // Initialize uniformData
+    // Initialize uniform buffers
     createUniformBuffers(graphics);
+    // Initialize shaderStorage
+    createShaderStorage(graphics);
     // Initialize sync
     createSyncObjects(graphics);
 }
@@ -1663,7 +1918,13 @@ Graphics initGraphics()
     
     // Initialize start time
     CHK_TIME_OF_DAY(graphics->startTime);
-        
+    
+    // Seed random engine using starting time
+    const uint64_t micros = 1000 * 1000 * graphics->startTime.tv_sec + 
+        graphics->startTime.tv_usec;
+    
+    srand(micros);
+    
     initWindow(graphics);
     initVulkan(graphics);
     
@@ -1672,6 +1933,39 @@ Graphics initGraphics()
 
 static void draw(Graphics graphics)
 {
+    // - Compute submission
+    CHK_VK_ERR(vkWaitForFences(graphics->device, 1,
+        &graphics->sync.computeInFlightFences[graphics->currentFrame],
+        VK_TRUE, UINT64_MAX),
+        "Failed to wait for computeInFlightFence of current frame\n");
+    
+    // Update uniform buffers ahead of shader stages
+    updateUniformBuffer(graphics);
+    
+    // Reset fence to unsignalled state
+    vkResetFences(graphics->device, 1, 
+        &graphics->sync.computeInFlightFences[graphics->currentFrame]);
+    // Make sure command buffer is able to be recorded
+    vkResetCommandBuffer(graphics->computeCommandBuffers[graphics->currentFrame], 0);
+    // Record compute commands to computeComandBuffer
+    recordComputeCommandBuffer(graphics, 
+        graphics->computeCommandBuffers[graphics->currentFrame]);
+    
+    // Submit recorded command buffer to queue
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = 
+        &graphics->computeCommandBuffers[graphics->currentFrame];
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = 
+        &graphics->sync.computeFinishedSemaphores[graphics->currentFrame];
+    
+    CHK_VK_ERR(vkQueueSubmit(graphics->computeQueue, 1, &submitInfo,
+        graphics->sync.computeInFlightFences[graphics->currentFrame]),
+        "Failed to submit compute command buffer\n");
+    
     // Note: currentFrame is initialized to 0 in initGraphics()
     // Wait for previous frame to finish
     CHK_VK_ERR(vkWaitForFences(graphics->device, 1, 
@@ -1697,6 +1991,7 @@ static void draw(Graphics graphics)
         exit(EXIT_FAILURE);
     }
     
+    // - Graphics submission
     // Reset fence to unsignalled state
     vkResetFences(graphics->device, 1, 
         &graphics->sync.inFlightFences[graphics->currentFrame]);
@@ -1704,22 +1999,21 @@ static void draw(Graphics graphics)
     vkResetCommandBuffer(graphics->commandBuffers[graphics->currentFrame], 0);
     // Record rendering commands to commandBuffer
     recordCommandBuffer(graphics, graphics->commandBuffers[graphics->currentFrame], imageIndex);
-    // Update uniform buffers before submitting draw command
-    updateUniformBuffer(graphics);
-    
-    // Submit recorded command buffer to graphics queue
-    VkSubmitInfo submitInfo = {0};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     
     // Wait on imageAvailable semaphore during COLOR_ATTACHMENT_OUTPUT_BIT
     // pipeline stage
     const VkSemaphore waitSemaphores[] = {
+        graphics->sync.computeFinishedSemaphores[graphics->currentFrame],
         graphics->sync.imageAvailableSemaphores[graphics->currentFrame]
     };
     const VkPipelineStageFlags waitStages[] = {
+        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     };
-    submitInfo.waitSemaphoreCount = 1;
+    submitInfo = (VkSubmitInfo) {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    
+    submitInfo.waitSemaphoreCount = 2;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
@@ -1795,10 +2089,16 @@ void cleanupGraphics(Graphics graphics)
     // Cleanup index buffer
     vkDestroyBuffer(graphics->device, graphics->indexData.buffer, NULL);
     vkFreeMemory(graphics->device, graphics->indexData.memory, NULL);
-    // Cleanup uniform buffers
+    // Cleanup uniform buffers & shader storage buffers
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        vkDestroyBuffer(graphics->device, graphics->uniformData.buffers[i], NULL);
-        vkFreeMemory(graphics->device, graphics->uniformData.memories[i], NULL);
+        vkDestroyBuffer(graphics->device, graphics->mvpUniform.buffers[i], NULL);
+        vkFreeMemory(graphics->device, graphics->mvpUniform.memories[i], NULL);
+        
+        vkDestroyBuffer(graphics->device, graphics->deltaTimeUniform.buffers[i], NULL);
+        vkFreeMemory(graphics->device, graphics->deltaTimeUniform.memories[i], NULL);
+        
+        vkDestroyBuffer(graphics->device, graphics->shaderStorage.buffers[i], NULL);
+        vkFreeMemory(graphics->device, graphics->shaderStorage.memories[i], NULL);
     }
     // Cleanup synchronization objects
     cleanupSyncObjects(graphics);
@@ -1809,6 +2109,9 @@ void cleanupGraphics(Graphics graphics)
     // Destroy graphics pipeline
     vkDestroyPipeline(graphics->device, graphics->graphicsPipeline, NULL);
     vkDestroyPipelineLayout(graphics->device, graphics->pipelineLayout, NULL);
+    // Destroy compute pipeline
+    vkDestroyPipeline(graphics->device, graphics->computePipeline, NULL);
+    vkDestroyPipelineLayout(graphics->device, graphics->computePipelineLayout, NULL);
     
     // Cleanup descriptor set resources
     cleanupDescriptorResources(graphics);

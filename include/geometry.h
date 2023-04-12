@@ -18,6 +18,18 @@ typedef struct UniformBufferObject {
     alignas(16) mat4 proj;
 } UniformBufferObject;
 
+// Elapsed time since program start
+typedef struct ParameterBufferObject {
+    float deltaTime;    
+} ParameterBufferObject;
+
+#define N_PARTICLES 16
+typedef struct Particle {
+    vec2 position;
+    vec2 velocity;
+    alignas(16) vec3 color;  // Note: Alignment is important
+} Particle;
+
 // Constants needed for star
 #define GEOM_STAR_INV_PHI_SQ 0.381966011250105151795413165634361882f
 #define GEOM_STAR_SIN_36     0.587785252292473129168705954639072769f
