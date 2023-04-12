@@ -1179,7 +1179,7 @@ static void createGraphicsPipeline(Graphics graphics)
     bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     
     // See Vertex and Particle structure in graphics.h 
-    VkVertexInputAttributeDescription attributeDescriptions[3] = {0};
+    VkVertexInputAttributeDescription attributeDescriptions[4] = {0};
     // Vertex.pos (vec2 -> r32g32)
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].binding = 0;
@@ -1195,12 +1195,17 @@ static void createGraphicsPipeline(Graphics graphics)
     attributeDescriptions[2].binding = 1;
     attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescriptions[2].offset = offsetof(Particle, position);
+    // Particle.orientation (float)
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].binding = 1;
+    attributeDescriptions[3].format = VK_FORMAT_R32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(Particle, orientation);
     
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {0};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 2;
     vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions;
-    vertexInputInfo.vertexAttributeDescriptionCount = 3;
+    vertexInputInfo.vertexAttributeDescriptionCount = 4;
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
     
     VkPipelineInputAssemblyStateCreateInfo pipelineAssemblyInfo = {0};
@@ -1619,8 +1624,11 @@ static void createShaderStorage(Graphics graphics)
         const float cosTheta = cosf(theta);
         const float sinTheta = sinf(theta);
         
+        // TODO: Set random initial position & orientation
         particles[i].position[0] = 0.0f;
         particles[i].position[1] = 0.0f;
+        
+        particles[i].orientation = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
         
         const float minSpeed = 1e-1f;
         const float maxSpeed = 1.0f;

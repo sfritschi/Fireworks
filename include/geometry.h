@@ -29,6 +29,7 @@ typedef struct Particle {
     vec2 position;
     vec2 velocity;
     alignas(16) vec3 color;  // Note: Alignment is important for GLSL
+    float orientation;
 } Particle;
 
 // Constants needed for star
