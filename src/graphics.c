@@ -1614,15 +1614,18 @@ static void createShaderStorage(Graphics graphics)
     // Initialize particle data
     Particle particles[N_PARTICLES] = {0};
     for (uint32_t i = 0; i < N_PARTICLES; ++i) {
-        // DEBUG: evenly spaced on circle with radius r
-        const float theta = (float)i * 2.0f * GLM_PI / (float)N_PARTICLES;
+        // Random direction
+        const float theta = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
         const float cosTheta = cosf(theta);
         const float sinTheta = sinf(theta);
         
         particles[i].position[0] = 0.0f;
         particles[i].position[1] = 0.0f;
         
-        const float speed = 1e-1f;
+        const float minSpeed = 1e-1f;
+        const float maxSpeed = 1.0f;
+        const float xi = ((float)rand() / (float)RAND_MAX);
+        const float speed = (maxSpeed - minSpeed) * xi + minSpeed;
         particles[i].velocity[0] = speed * cosTheta;
         particles[i].velocity[1] = speed * sinTheta;
         
@@ -1837,8 +1840,8 @@ static void recordComputeCommandBuffer(Graphics graphics,
         graphics->computePipelineLayout, 0, 1, 
         &graphics->computeDescriptor.sets[graphics->currentFrame], 0, NULL);
     // Dispatch compute shader
-    // Note: Using 64 threads per work group in x dimension 
-    vkCmdDispatch(commandBuffer, N_PARTICLES / 16, 1, 1);
+    // Note: Using 256 threads per work group in x dimension 
+    vkCmdDispatch(commandBuffer, N_PARTICLES / 256, 1, 1);
     
     CHK_VK_ERR(vkEndCommandBuffer(commandBuffer),
         "Failed to end recording compute command buffer\n");
@@ -1897,7 +1900,7 @@ static void initVulkan(Graphics graphics)
     // Initialize command pool and command buffer objects
     createCommandResources(graphics);
     // Create a star
-    const Star star = geomMakeStar(0.0f, 0.0f, 0.1f, 0.8f, 0.1f, 0.0f);
+    const Star star = geomMakeStar(0.0f, 0.0f, 0.05f, 0.8f, 0.1f, 0.0f);
     // Initialize vertexData
     createVertexBuffer(graphics, star.vertices, N_VERTICES_STAR);
     // Initialize indexData

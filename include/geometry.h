@@ -6,6 +6,7 @@
 
 #include <stdalign.h>  // enforce alignment requirements of shader UBO bindings
 
+// TODO: Remove color attribute -> derived from instance instead
 typedef struct Vertex {
     vec2 pos;
     vec3 col;
@@ -23,11 +24,11 @@ typedef struct ParameterBufferObject {
     float deltaTime;    
 } ParameterBufferObject;
 
-#define N_PARTICLES 16
+#define N_PARTICLES 1024
 typedef struct Particle {
     vec2 position;
     vec2 velocity;
-    alignas(16) vec3 color;  // Note: Alignment is important
+    alignas(16) vec3 color;  // Note: Alignment is important for GLSL
 } Particle;
 
 // Constants needed for star
