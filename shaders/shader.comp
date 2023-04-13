@@ -26,13 +26,16 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
     const float ANIMATION_RESET_TIME = 10.0;  // see graphics.h
+    const float g = 9.81 * 1e-2;  // gravitational constant (positive y-axis points down)  
     const uint index = gl_GlobalInvocationID.x;
     
     Particle inParticle = inParticles[index];
     
-    // Update position of stars using explicit Euler
-    outParticles[index].position = inParticle.position + inParticle.velocity * ubo.deltaTime;
-    outParticles[index].velocity = inParticle.velocity;
+    // Update position and velocity based on initial conditions and gravity
+    outParticles[index].position = inParticle.position + 
+        inParticle.velocity * ubo.deltaTime +
+        vec2(0.0, 0.5 * g * ubo.deltaTime*ubo.deltaTime);
+    outParticles[index].velocity = inParticle.velocity + vec2(0.0, g * ubo.deltaTime);
     outParticles[index].color.rgb = inParticle.color.rgb;
     // Modify alpha value based on deltaTime
     // Linearly fade-out stars
