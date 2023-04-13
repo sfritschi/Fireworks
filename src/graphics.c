@@ -1598,7 +1598,7 @@ static void createUniformBuffers(Graphics graphics)
 static void randomizeParticles(Particle particles[N_PARTICLES])
 {
     // Note: Equi-area sampling (uniform)
-    const float r = 0.5f * sqrtf((float)rand() / (float)RAND_MAX);
+    const float r = STARTING_POSITION_RADIUS * sqrtf((float)rand() / (float)RAND_MAX);
     const float phi = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
     const float randomCenterX = r * cosf(phi);
     const float randomCenterY = r * sinf(phi);
@@ -1922,7 +1922,7 @@ Graphics initGraphics()
     // Initialize start time
     graphics->lastFrameTime = glfwGetTime();
     
-    // Seed random engine using starting time
+    // Seed random engine using current time
     srand(time(NULL));
     
     initWindow(graphics);
