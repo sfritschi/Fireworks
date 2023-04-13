@@ -1608,6 +1608,7 @@ static void randomizeParticles(Particle particles[N_PARTICLES])
         particles[i].position[0] = randomCenterX;
         particles[i].position[1] = randomCenterY;
         
+        // Random orientation
         particles[i].orientation = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
         
         // Random direction
@@ -1839,6 +1840,8 @@ static void updateShaderBuffers(Graphics graphics)
     // Compute elapsed time since last frame
     const double now = glfwGetTime();
     const double deltaTime = now - graphics->lastFrameTime;
+    // Note: Ideally would use some kind of callback for exact timing,
+    //       but good enough in practice
     if (now >= ANIMATION_RESET_TIME) {
         // Reset GLFW timer
         glfwSetTime(0.0);

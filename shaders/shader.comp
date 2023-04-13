@@ -1,5 +1,6 @@
 #version 450 core
 
+// See geometry.h for same structure 
 struct Particle {
     vec2 position;
     vec2 velocity;
