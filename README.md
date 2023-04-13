@@ -1,5 +1,5 @@
 # Fireworks
-Vulkan 2D Fireworks Simulation
+Vulkan 2D Fireworks Animation
 
 Goal is to animate 5-pointed star geometries shooting in random directions at different velocities, starting from the same (random) origin. This is repeated indefinitely.
 
