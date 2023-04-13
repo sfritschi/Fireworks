@@ -1,6 +1,6 @@
 # C Compilation Configuration
 CC=clang
-CFLAGS=-Wall -Wextra -Wpedantic -std=c17 -O2 -gdwarf-4
+CFLAGS=-Wall -Wextra -Wpedantic -std=c17
 LDFLAGS=-lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi -lm
 
 INCLUDE =-Iinclude
@@ -23,8 +23,12 @@ SHADER_SRC=$(wildcard $(SHADER_SRCDIR)/shader.*)
 SHADER_BIN=$(patsubst $(SHADER_SRCDIR)/shader.%,$(SHADER_BINDIR)/%.spv,$(SHADER_SRC))
 
 TARGET=main
-.PHONY: all, clean
+.PHONY: all, release, clean
 all: $(TARGET)
+
+all:     CFLAGS+=-gdwarf-4 -O2
+release: CFLAGS+=-DNDEBUG -O3
+release: $(TARGET)
 
 # Compile C source
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
