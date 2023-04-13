@@ -4,12 +4,10 @@
 #define CGLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <cglm/cglm.h>
 
-#include <stdalign.h>  // enforce alignment requirements of shader UBO bindings
+#include <stdalign.h>  // enforce alignment requirements of shader bindings
 
-// TODO: Remove color attribute -> derived from instance instead
 typedef struct Vertex {
     vec2 pos;
-    vec3 col;
 } Vertex;
 
 // MVP matrices
@@ -19,16 +17,16 @@ typedef struct UniformBufferObject {
     alignas(16) mat4 proj;
 } UniformBufferObject;
 
-// Elapsed time since program start
+// Elapsed time since animation begin
 typedef struct ParameterBufferObject {
     float deltaTime;    
 } ParameterBufferObject;
 
-#define N_PARTICLES 1024
+#define N_PARTICLES 2048  // Note: Assumed to be evenly divisible by 256
 typedef struct Particle {
     vec2 position;
     vec2 velocity;
-    alignas(16) vec3 color;  // Note: Alignment is important for GLSL
+    alignas(16) vec4 color;  // Note: Alignment is important for shaders
     float orientation;
 } Particle;
 
@@ -49,9 +47,6 @@ typedef struct Star {
 // @param cx: x-coordinate of star center
 // @param cy: y-coordinate of star center
 // @param d : distance from star center to tip
-// @param r : red color channel
-// @param g : green color channel
-// @param b : blue color channel
-Star geomMakeStar(float cx, float cy, float d, float r, float g, float b);
+Star geomMakeStar(float cx, float cy, float d);
 
 #endif /* GEOMETRY_H */

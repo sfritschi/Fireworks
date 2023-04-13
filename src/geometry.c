@@ -1,6 +1,6 @@
 #include "geometry.h"
 
-Star geomMakeStar(float cx, float cy, float d, float r, float g, float b)
+Star geomMakeStar(float cx, float cy, float d)
 {
     const float s = GEOM_STAR_INV_PHI_SQ * d;  // interior pentagon distance
     
@@ -8,18 +8,17 @@ Star geomMakeStar(float cx, float cy, float d, float r, float g, float b)
     //       all triangles share central vertex. 
     //       This might not be supported however...
     Star star = {0};
-    star.vertices[0]  = (Vertex) {{cx, cy - d}, {r, g, b}};
-    star.vertices[1]  = (Vertex) {{cx - d * GEOM_STAR_SIN_72, cy - d * GEOM_STAR_COS_72}, {r, g, b}};
-    star.vertices[2]  = (Vertex) {{cx - d * GEOM_STAR_SIN_36, cy + d * GEOM_STAR_COS_36}, {r, g, b}};
-    star.vertices[3]  = (Vertex) {{cx + d * GEOM_STAR_SIN_36, cy + d * GEOM_STAR_COS_36}, {r, g, b}};
-    star.vertices[4]  = (Vertex) {{cx + d * GEOM_STAR_SIN_72, cy - d * GEOM_STAR_COS_72}, {r, g, b}};
-    star.vertices[5]  = (Vertex) {{cx - s * GEOM_STAR_SIN_36, cy - s * GEOM_STAR_COS_36}, {r, g, b}};
-    star.vertices[6]  = (Vertex) {{cx - s * GEOM_STAR_SIN_72, cy + s * GEOM_STAR_COS_72}, {r, g, b}};
-    star.vertices[7]  = (Vertex) {{cx, cy + s}, {r, g, b}};
-    star.vertices[8]  = (Vertex) {{cx + s * GEOM_STAR_SIN_72, cy + s * GEOM_STAR_COS_72}, {r, g, b}};
-    star.vertices[9]  = (Vertex) {{cx + s * GEOM_STAR_SIN_36, cy - s * GEOM_STAR_COS_36}, {r, g, b}};
-    // Note: Changed color of central vertex
-    star.vertices[10] = (Vertex) {{cx, cy}, {0.0f, 0.1f, 0.8f}};
+    star.vertices[0]  = (Vertex) {cx, cy - d};
+    star.vertices[1]  = (Vertex) {cx - d * GEOM_STAR_SIN_72, cy - d * GEOM_STAR_COS_72};
+    star.vertices[2]  = (Vertex) {cx - d * GEOM_STAR_SIN_36, cy + d * GEOM_STAR_COS_36};
+    star.vertices[3]  = (Vertex) {cx + d * GEOM_STAR_SIN_36, cy + d * GEOM_STAR_COS_36};
+    star.vertices[4]  = (Vertex) {cx + d * GEOM_STAR_SIN_72, cy - d * GEOM_STAR_COS_72};
+    star.vertices[5]  = (Vertex) {cx - s * GEOM_STAR_SIN_36, cy - s * GEOM_STAR_COS_36};
+    star.vertices[6]  = (Vertex) {cx - s * GEOM_STAR_SIN_72, cy + s * GEOM_STAR_COS_72};
+    star.vertices[7]  = (Vertex) {cx, cy + s};
+    star.vertices[8]  = (Vertex) {cx + s * GEOM_STAR_SIN_72, cy + s * GEOM_STAR_COS_72};
+    star.vertices[9]  = (Vertex) {cx + s * GEOM_STAR_SIN_36, cy - s * GEOM_STAR_COS_36};
+    star.vertices[10] = (Vertex) {cx, cy};
     
     star.indices[0]  = 10;
     star.indices[1]  = 5;

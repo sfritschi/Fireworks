@@ -13,10 +13,10 @@
 
 #include "geometry.h"
 
-#define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 600
+#define WINDOW_WIDTH 1400
+#define WINDOW_HEIGHT 1000
 #define MAX_FRAMES_IN_FLIGHT 2
-#define ANIMATION_RESET_TIME 6.0  // 6 seconds
+#define ANIMATION_RESET_TIME 10.0  // 10 seconds
 
 #ifdef NDEBUG
 #define ENABLE_VALIDATION_LAYERS VK_FALSE

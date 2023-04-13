@@ -9,7 +9,6 @@ static const char *REQ_DEVICE_EXTENSIONS[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-// TODO: Maybe move helper functions to different compilation unit
 // --- Start Helper functions
 // Allocate new string with same contents as src (NULL-terminated)
 static char *copyString(const char *src)
@@ -1158,7 +1157,6 @@ static void createGraphicsPipeline(Graphics graphics)
     
     bindingDescriptions[1].binding = 1;
     bindingDescriptions[1].stride = sizeof(Particle);
-    // Attribute addressing using vertex index (as opposed to instance index)
     bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     
     // See Vertex and Particle structure in graphics.h 
@@ -1168,10 +1166,10 @@ static void createGraphicsPipeline(Graphics graphics)
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(Vertex, pos);
-    // Particle.col (vec3 -> r32g32b32)
+    // Particle.col (vec4 -> r32g32b32a32)
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].binding = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(Particle, color);
     // Particle.pos (vec2 -> r32g32)
     attributeDescriptions[2].location = 2;
@@ -1625,6 +1623,7 @@ static void randomizeParticles(Particle particles[N_PARTICLES])
         particles[i].color[0] = (float)rand() / (float)RAND_MAX;
         particles[i].color[1] = (float)rand() / (float)RAND_MAX;
         particles[i].color[2] = (float)rand() / (float)RAND_MAX;
+        particles[i].color[3] = 1.0f;  // fully opaque
     }
 }
 
@@ -1835,13 +1834,12 @@ static void recordComputeCommandBuffer(Graphics graphics,
         "Failed to end recording compute command buffer\n");
 }
 
-static void updateUniformBuffer(Graphics graphics)
+static void updateShaderBuffers(Graphics graphics)
 {   
     // Compute elapsed time since last frame
     const double now = glfwGetTime();
     const double deltaTime = now - graphics->lastFrameTime;
     if (now >= ANIMATION_RESET_TIME) {
-        printf("Now: %.3f s\n", now);
         // Reset GLFW timer
         glfwSetTime(0.0);
         graphics->lastFrameTime = glfwGetTime();
@@ -1868,9 +1866,6 @@ static void updateUniformBuffer(Graphics graphics)
     
     glm_lookat((vec3){0.0f, 0.0f, -2.0f}, (vec3){0.0f, 0.0f, 0.0f}, 
         (vec3){0.0f, -1.0f, 0.0f}, ubo.view);
-    //glm_rotate_make(ubo.model, deltaTime * CGLM_PI / 4.0f, (vec3) {0.0f, 0.0f, 1.0f});
-    //glm_ortho(0.0f, (float)graphics->swapChainData.extent.width, 0.0f,
-    //    (float)graphics->swapChainData.extent.height, -1.0f, 1.0f, ubo.proj);
     glm_perspective(GLM_PI / 4.0f, (float)graphics->swapChainData.extent.width /
         (float)graphics->swapChainData.extent.height, -1.0f, 1.0f, ubo.proj);
     // Flip sign for consistency
@@ -1905,7 +1900,7 @@ static void initVulkan(Graphics graphics)
     // Initialize command pool and command buffer objects
     createCommandResources(graphics);
     // Create a star
-    const Star star = geomMakeStar(0.0f, 0.0f, 0.05f, 0.8f, 0.1f, 0.0f);
+    const Star star = geomMakeStar(0.0f, 0.0f, 0.05f);
     // Initialize vertexData
     createVertexBuffer(graphics, star.vertices, N_VERTICES_STAR);
     // Initialize indexData
@@ -1944,8 +1939,8 @@ static void draw(Graphics graphics)
         VK_TRUE, UINT64_MAX),
         "Failed to wait for computeInFlightFence of current frame\n");
     
-    // Update uniform buffers ahead of shader stages
-    updateUniformBuffer(graphics);
+    // Update shader buffers ahead of shader stages
+    updateShaderBuffers(graphics);
     
     // Reset fence to unsignalled state
     vkResetFences(graphics->device, 1, 

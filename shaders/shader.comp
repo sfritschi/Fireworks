@@ -3,7 +3,7 @@
 struct Particle {
     vec2 position;
     vec2 velocity;
-    vec3 color;
+    vec4 color;
     float orientation;
 };
 
@@ -19,16 +19,22 @@ layout(std140, binding = 2) buffer OutParticleSSBO {
     Particle outParticles[];
 };
 
+// Define local group size (1D)
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
+    const float ANIMATION_RESET_TIME = 10.0;  // see graphics.h
     const uint index = gl_GlobalInvocationID.x;
     
     Particle inParticle = inParticles[index];
     
+    // Update position of stars using explicit Euler
     outParticles[index].position = inParticle.position + inParticle.velocity * ubo.deltaTime;
     outParticles[index].velocity = inParticle.velocity;
-    outParticles[index].color = inParticle.color;
+    outParticles[index].color.rgb = inParticle.color.rgb;
+    // Modify alpha value based on deltaTime
+    // Linearly fade-out stars
+    outParticles[index].color.a = clamp(inParticle.color.a - ubo.deltaTime / ANIMATION_RESET_TIME, 0.0, 1.0); 
     outParticles[index].orientation = inParticle.orientation;
 }
