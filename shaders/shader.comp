@@ -4,6 +4,7 @@ struct Particle {
     vec2 position;
     vec2 velocity;
     vec3 color;
+    float orientation;
 };
 
 layout(binding = 0) uniform ParameterUBO {
@@ -26,7 +27,8 @@ void main()
     
     Particle inParticle = inParticles[index];
     
-    outParticles[index].position = inParticle.velocity * ubo.deltaTime;
+    outParticles[index].position = inParticle.position + inParticle.velocity * ubo.deltaTime;
     outParticles[index].velocity = inParticle.velocity;
     outParticles[index].color = inParticle.color;
+    outParticles[index].orientation = inParticle.orientation;
 }

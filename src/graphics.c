@@ -1,6 +1,7 @@
 #include "graphics.h"
 
 #include <string.h>
+#include <time.h>  // time()
 
 // Globals
 static const char *const VALIDATION_LAYER_NAME = "VK_LAYER_KHRONOS_validation";
@@ -25,13 +26,6 @@ static uint32_t clampu32(uint32_t x, uint32_t min, uint32_t max)
     if (x < min) return min;
     if (x > max) return max;
     return x;
-}
-
-static void randomColor(vec3 color)
-{
-    color[0] = (float)rand() / (float)RAND_MAX;
-    color[1] = (float)rand() / (float)RAND_MAX;
-    color[2] = (float)rand() / (float)RAND_MAX;
 }
 
 static char *readBinFile(const char *fileName, uint32_t *fileSize)
@@ -65,17 +59,6 @@ static char *readBinFile(const char *fileName, uint32_t *fileSize)
 }
 // --- End Helper functions
 
-// Get fractional number of seconds since "program begin".
-// Assumes graphics->startTime has been set already
-static float getDeltaT(Graphics graphics)
-{
-    struct timeval currentTime;
-    CHK_TIME_OF_DAY(currentTime);
-    
-    return (float)(currentTime.tv_sec - graphics->startTime.tv_sec) 
-        + ((float)(currentTime.tv_usec - graphics->startTime.tv_usec)) * 1e-6f;
-}
-
 // Callbacks
 static void glfwErrorCallback(int error, const char* description)
 {
@@ -85,15 +68,15 @@ static void glfwErrorCallback(int error, const char* description)
     exit(EXIT_FAILURE);  // cannot continue
 }
 
-static void glfwKeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+static void glfwKeyCallback(GLFWwindow *window, int key, int scancode, 
+    int action, int mods)
 {
     (void)scancode;
     (void)mods;
     
-    if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-        Graphics graphics = (Graphics) glfwGetWindowUserPointer(window);
-        // Restart animation time
-        CHK_TIME_OF_DAY(graphics->startTime);
+    if ((key == GLFW_KEY_Q || key == GLFW_KEY_ESCAPE) && action == GLFW_PRESS) {
+        // Close window
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
 }
 
@@ -1614,63 +1597,60 @@ static void createUniformBuffers(Graphics graphics)
         &graphics->computeDescriptor, bufferSize, 0);
 }
 
-static void createShaderStorage(Graphics graphics)
+static void randomizeParticles(Particle particles[N_PARTICLES])
 {
-    // Initialize particle data
-    Particle particles[N_PARTICLES] = {0};
+    // Note: Equi-area sampling (uniform)
+    const float r = 0.5f * sqrtf((float)rand() / (float)RAND_MAX);
+    const float phi = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
+    const float randomCenterX = r * cosf(phi);
+    const float randomCenterY = r * sinf(phi);
+    
     for (uint32_t i = 0; i < N_PARTICLES; ++i) {
-        // Random direction
-        const float theta = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
-        const float cosTheta = cosf(theta);
-        const float sinTheta = sinf(theta);
-        
-        // TODO: Set random initial position & orientation
-        particles[i].position[0] = 0.0f;
-        particles[i].position[1] = 0.0f;
+        // Random initial position inside concentric circle for ALL particles
+        particles[i].position[0] = randomCenterX;
+        particles[i].position[1] = randomCenterY;
         
         particles[i].orientation = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
         
+        // Random direction
+        const float theta = ((float)rand() / (float)RAND_MAX) * 2.0f * GLM_PI;
+        // Random speed
         const float minSpeed = 1e-1f;
         const float maxSpeed = 1.0f;
         const float xi = ((float)rand() / (float)RAND_MAX);
         const float speed = (maxSpeed - minSpeed) * xi + minSpeed;
-        particles[i].velocity[0] = speed * cosTheta;
-        particles[i].velocity[1] = speed * sinTheta;
+        particles[i].velocity[0] = speed * cosf(theta);
+        particles[i].velocity[1] = speed * sinf(theta);
         
-        randomColor(particles[i].color);
+        particles[i].color[0] = (float)rand() / (float)RAND_MAX;
+        particles[i].color[1] = (float)rand() / (float)RAND_MAX;
+        particles[i].color[2] = (float)rand() / (float)RAND_MAX;
     }
+}
+
+static void createShaderStorage(Graphics graphics)
+{
+    // Initialize particle data
+    Particle particles[N_PARTICLES] = {0};
+    randomizeParticles(particles);
+    
     const VkDeviceSize bufferSize = sizeof(particles);
-    
-    // Initialize staging buffer
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        &stagingBuffer, &stagingBufferMemory);
-    
-    // Fill staging buffer with particle data
-    void *data = NULL;
-    vkMapMemory(graphics->device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        memcpy(data, particles, (size_t)bufferSize);
-    vkUnmapMemory(graphics->device, stagingBufferMemory);
     
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             &graphics->shaderStorage.buffers[i], &graphics->shaderStorage.memories[i]);
         
-        copyBuffer(graphics, stagingBuffer, 
-            graphics->shaderStorage.buffers[i], bufferSize);
+        // Map particle data to buffer
+        vkMapMemory(graphics->device, graphics->shaderStorage.memories[i],
+            0, bufferSize, 0, &graphics->shaderStorage.mapped[i]);
+        // Copy particle data
+        memcpy(graphics->shaderStorage.mapped[i], particles, (size_t)bufferSize);
     }
-    
-    // Cleanup staging buffer
-    vkDestroyBuffer(graphics->device, stagingBuffer, NULL);
-    vkFreeMemory(graphics->device, stagingBufferMemory, NULL);
     
     // Update descriptor sets accordingly
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -1856,11 +1836,28 @@ static void recordComputeCommandBuffer(Graphics graphics,
 }
 
 static void updateUniformBuffer(Graphics graphics)
-{    
-    const float deltaTime = getDeltaT(graphics);
+{   
+    // Compute elapsed time since last frame
+    const double now = glfwGetTime();
+    const double deltaTime = now - graphics->lastFrameTime;
+    if (now >= ANIMATION_RESET_TIME) {
+        printf("Now: %.3f s\n", now);
+        // Reset GLFW timer
+        glfwSetTime(0.0);
+        graphics->lastFrameTime = glfwGetTime();
+        // Re-randomize particles
+        Particle particles[N_PARTICLES] = {0};
+        randomizeParticles(particles);
+        // Copy data to storage buffer of currentFrame
+        memcpy(graphics->shaderStorage.mapped[graphics->currentFrame],
+            particles, sizeof(particles));
+        
+    } else {
+        graphics->lastFrameTime = now;
+    }
     
     ParameterBufferObject pbo = {0};
-    pbo.deltaTime = deltaTime;
+    pbo.deltaTime = (float)deltaTime;
     
     // Copy deltaTime to uniform entry
     memcpy(graphics->deltaTimeUniform.mapped[graphics->currentFrame], 
@@ -1928,13 +1925,10 @@ Graphics initGraphics()
     CHK_ALLOC(graphics = (Graphics) calloc(1, sizeof(GraphicsData)));
     
     // Initialize start time
-    CHK_TIME_OF_DAY(graphics->startTime);
+    graphics->lastFrameTime = glfwGetTime();
     
     // Seed random engine using starting time
-    const uint64_t micros = 1000 * 1000 * graphics->startTime.tv_sec + 
-        graphics->startTime.tv_usec;
-    
-    srand(micros);
+    srand(time(NULL));
     
     initWindow(graphics);
     initVulkan(graphics);

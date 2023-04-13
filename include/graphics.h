@@ -16,6 +16,7 @@
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 600
 #define MAX_FRAMES_IN_FLIGHT 2
+#define ANIMATION_RESET_TIME 6.0  // 6 seconds
 
 #ifdef NDEBUG
 #define ENABLE_VALIDATION_LAYERS VK_FALSE
@@ -41,13 +42,6 @@
     if ((ptr)) {\
         free(ptr);\
         ptr = NULL;\
-    }\
-} while(0)
-
-#define CHK_TIME_OF_DAY(timer) do {\
-    if (gettimeofday(&(timer), NULL)) {\
-        fprintf(stderr, "gettimeofday() error: %s\n", strerror(errno));\
-        exit(EXIT_FAILURE);\
     }\
 } while(0)
 
@@ -139,7 +133,7 @@ typedef struct GraphicsData {
     FlightBufferResource deltaTimeUniform;
     FlightBufferResource shaderStorage; 
     SyncObjects sync;
-    struct timeval startTime;  // record starting time used for animation
+    double lastFrameTime;  // Elapsed time in seconds since last frame
     VkDebugUtilsMessengerEXT debugMessenger;
 } GraphicsData;
 
