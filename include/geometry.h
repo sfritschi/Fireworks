@@ -19,7 +19,10 @@ typedef struct UniformBufferObject {
 
 // Elapsed time since animation begin
 typedef struct ParameterBufferObject {
-    float deltaTime;    
+    float deltaTime;
+    float elapsedTime;
+    float animationResetTime;
+    uint32_t randomSeed;
 } ParameterBufferObject;
 
 #define N_PARTICLES 2048  // Note: Assumed to be evenly divisible by 256

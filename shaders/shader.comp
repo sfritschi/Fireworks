@@ -1,5 +1,7 @@
 #version 450 core
 
+#define M_PI 3.1415926535897932384626433832795
+
 // See geometry.h for same structure 
 struct Particle {
     vec2 position;
@@ -10,6 +12,9 @@ struct Particle {
 
 layout(binding = 0) uniform ParameterUBO {
     float deltaTime;
+    float elapsedTime;
+    float animationResetTime;
+    uint randomSeed;
 } ubo;
 
 layout(std140, binding = 1) readonly buffer InParticleSSBO {
@@ -20,25 +25,76 @@ layout(std140, binding = 2) buffer OutParticleSSBO {
     Particle outParticles[];
 };
 
+// source: https://www.shadertoy.com/view/WttXWX
+uint hash(uint x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352dU;
+    x ^= x >> 15;
+    x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x;
+}
+
+// Returns pseudo-random number in interval [0, 1]
+float random(uint x)
+{
+    return float(hash(x)) / float(0xffffffffU);
+}
+
 // Define local group size (1D)
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main()
 {
-    const float ANIMATION_RESET_TIME = 10.0;  // see graphics.h
-    const float g = 9.81 * 1e-2;  // gravitational constant (positive y-axis points down)  
+    // Reduced gravitational constant (positive y-axis points down)
+    const float diskRadius = 0.8;  // see graphics.h
+    const float g = 9.81 * 1e-2;
+    // Motion speed bounds for stars
+    const float minSpeed = 1e-1f;
+    const float maxSpeed = 1.0f;
+        
     const uint index = gl_GlobalInvocationID.x;
+    uint sharedSeed = hash(ubo.randomSeed);          // same for each thread
+    uint uniqueSeed = hash(index + ubo.randomSeed);  // different for each thread
     
-    Particle inParticle = inParticles[index];
+    const Particle inParticle = inParticles[index];
     
-    // Update position and velocity based on initial conditions and gravity
-    outParticles[index].position = inParticle.position + 
-        inParticle.velocity * ubo.deltaTime +
-        vec2(0.0, 0.5 * g * ubo.deltaTime*ubo.deltaTime);
-    outParticles[index].velocity = inParticle.velocity + vec2(0.0, g * ubo.deltaTime);
-    outParticles[index].color.rgb = inParticle.color.rgb;
-    // Modify alpha value based on deltaTime
-    // Linearly fade-out stars
-    outParticles[index].color.a = clamp(inParticle.color.a - ubo.deltaTime / ANIMATION_RESET_TIME, 0.0, 1.0); 
-    outParticles[index].orientation = inParticle.orientation;
+    if (ubo.elapsedTime < ubo.animationResetTime) {
+        // -- Update star particles --
+        
+        // Update position and velocity based on initial conditions and gravity
+        outParticles[index].position = inParticle.position + 
+            inParticle.velocity * ubo.deltaTime +
+            vec2(0.0, 0.5 * g * ubo.deltaTime*ubo.deltaTime);
+        outParticles[index].velocity = inParticle.velocity + vec2(0.0, g * ubo.deltaTime);
+        outParticles[index].color.rgb = inParticle.color.rgb;
+        // Modify alpha value based on deltaTime
+        // Linearly fade-out stars
+        outParticles[index].color.a = clamp(inParticle.color.a - ubo.deltaTime / ubo.animationResetTime, 0.0, 1.0); 
+        outParticles[index].orientation = inParticle.orientation;
+    } else {
+        // -- Reset firework animation --
+        
+        // Generate SAME random starting position (uniformly inside disk) using shared seed
+        const float r = diskRadius * sqrt(random(sharedSeed++));
+        const float phi = random(sharedSeed++) * 2.0 * M_PI;
+        
+        outParticles[index].position.x = r * cos(phi);
+        outParticles[index].position.y = r * sin(phi);
+        
+        // Generate random INDEPENDENT orientation of stars
+        outParticles[index].orientation = random(uniqueSeed++);
+        // Generate random INDEPENDENT color of stars
+        outParticles[index].color.r = random(uniqueSeed++);
+        outParticles[index].color.g = random(uniqueSeed++);
+        outParticles[index].color.b = random(uniqueSeed++);
+        outParticles[index].color.a = 1.0;  // fully opaque
+        // Generate random INDEPENDENT speed of stars
+        const float speed = random(uniqueSeed++) * (maxSpeed - minSpeed) + minSpeed;
+        const float direction = random(uniqueSeed++) * 2.0 * M_PI;
+        
+        outParticles[index].velocity.x = speed * cos(direction);
+        outParticles[index].velocity.y = speed * sin(direction);
+    }
 }

@@ -1636,21 +1636,35 @@ static void createShaderStorage(Graphics graphics)
     
     const VkDeviceSize bufferSize = sizeof(particles);
     
+    // Initialize staging buffer
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    
+    createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &stagingBuffer, &stagingBufferMemory);
+        
+    void *data;
+    vkMapMemory(graphics->device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, particles, (size_t)bufferSize);
+    vkUnmapMemory(graphics->device, stagingBufferMemory);
+    
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         createBuffer(graphics->device, graphics->physicalDevice, bufferSize,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &graphics->shaderStorage.buffers[i], &graphics->shaderStorage.memories[i]);
         
-        // Map particle data to buffer
-        vkMapMemory(graphics->device, graphics->shaderStorage.memories[i],
-            0, bufferSize, 0, &graphics->shaderStorage.mapped[i]);
-        // Copy particle data
-        memcpy(graphics->shaderStorage.mapped[i], particles, (size_t)bufferSize);
+        copyBuffer(graphics, stagingBuffer, graphics->shaderStorage.buffers[i], bufferSize);
     }
+    
+    // Cleanup staging buffer
+    vkDestroyBuffer(graphics->device, stagingBuffer, NULL);
+    vkFreeMemory(graphics->device, stagingBufferMemory, NULL);
     
     // Update descriptor sets accordingly
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -1846,20 +1860,15 @@ static void updateShaderBuffers(Graphics graphics)
         // Reset GLFW timer
         glfwSetTime(0.0);
         graphics->lastFrameTime = glfwGetTime();
-        // Re-randomize particles
-        Particle particles[N_PARTICLES] = {0};
-        randomizeParticles(particles);
-        // Copy data to storage buffer of currentFrame
-        memcpy(graphics->shaderStorage.mapped[graphics->currentFrame],
-            particles, sizeof(particles));
-        
     } else {
         graphics->lastFrameTime = now;
     }
     
     ParameterBufferObject pbo = {0};
     pbo.deltaTime = (float)deltaTime;
-    
+    pbo.elapsedTime = (float)now;
+    pbo.animationResetTime = (float)ANIMATION_RESET_TIME;
+    pbo.randomSeed = (uint32_t)rand();
     // Copy deltaTime to uniform entry
     memcpy(graphics->deltaTimeUniform.mapped[graphics->currentFrame], 
         &pbo, sizeof(pbo));
