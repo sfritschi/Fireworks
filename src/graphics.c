@@ -1868,7 +1868,8 @@ static void updateShaderBuffers(Graphics graphics)
     pbo.deltaTime = (float)deltaTime;
     pbo.elapsedTime = (float)now;
     pbo.animationResetTime = (float)ANIMATION_RESET_TIME;
-    pbo.randomSeed = (uint32_t)rand();
+    pbo.randomSeed = (uint32_t)rand();  // used during animation reset in compute shader
+    
     // Copy deltaTime to uniform entry
     memcpy(graphics->deltaTimeUniform.mapped[graphics->currentFrame], 
         &pbo, sizeof(pbo));
